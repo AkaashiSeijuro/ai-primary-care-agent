@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
 
 DISCLAIMER = "I can provide guidance, but I cannot replace an in-person examination"
 TIMELINE_Q = "When did this first start, and has it been getting better, worse, or staying the same?"
@@ -33,6 +32,7 @@ BANNED_PHRASES = [
     "dyspnea",
 ]
 
+
 @dataclass
 class Intake:
     chief_complaint: str
@@ -43,12 +43,15 @@ class Intake:
     meds_allergies: str
 
 
-def looks_like_emergency(text: str) -> bool:
+def looks_like_emergency(text):
     t = text.lower()
-    return any(re.search(pat, t) for pat in EMERGENCY_TRIGGERS)
+    for pat in EMERGENCY_TRIGGERS:
+        if re.search(pat, t):
+            return True
+    return False
 
 
-def enforce_language_rules(text: str) -> Tuple[bool, List[str]]:
+def enforce_language_rules(text):
     issues = []
     lower = text.lower()
 
@@ -56,32 +59,24 @@ def enforce_language_rules(text: str) -> Tuple[bool, List[str]]:
         if banned in lower:
             issues.append(f'Contains banned phrase or jargon: "{banned}"')
 
-    # Recommendations must end with this exact sentence
     if "How does this sound to you?" not in text:
         issues.append('Missing required ending: "How does this sound to you?"')
 
-    # Must include disclaimer in any recommendation or escalation output
     if DISCLAIMER not in text:
         issues.append(f'Missing disclaimer: "{DISCLAIMER}"')
 
-    # If escalation is present, must include remote safety line
-    if "Here's what I recommend" in text and looks_like_emergency(text):
+    if "Here's what I recommend" in text:
         if REMOTE_LIMIT not in text:
             issues.append(f'Missing escalation safety line: "{REMOTE_LIMIT}"')
 
     return (len(issues) == 0, issues)
 
 
-def mild_plan(intake: Intake, followup_days: int = 3) -> str:
-    # Exactly 3 self-care recs, numbered 1-3, plain language
-    # Must include follow-up timeframe and end with "How does this sound to you?"
-    # Must not use jargon, must have disclaimer
+def mild_plan(intake, followup_days=3):
     response_lines = []
 
-    # Using required acknowledgement form
     response_lines.append("I understand. Let's work through this together.")
 
-    # Validating worry if present in a simple way
     if intake.worry.strip():
         response_lines.append(
             f"It’s completely understandable that you’re concerned about {intake.worry.strip()}."
@@ -104,21 +99,14 @@ def mild_plan(intake: Intake, followup_days: int = 3) -> str:
     return "\n".join(response_lines)
 
 
-def emergency_plan(intake: Intake) -> str:
-    # Must follow: "Based on what you've told me..." + assessment + "Here's what I recommend..." + action
-    # Must include "This is beyond what I can safely assess remotely"
-    # Must include disclaimer
-    # Must end with "How does this sound to you?"
+def emergency_plan(intake):
     response_lines = []
 
-    # Required acknowledgement form
     response_lines.append("I understand. Let's work through this together.")
 
-    # Validating pain if mentioned
     if "pain" in intake.chief_complaint.lower():
         response_lines.append("That sounds really uncomfortable")
 
-    # Validate worry
     if intake.worry.strip():
         response_lines.append(
             f"It’s completely understandable that you’re concerned about {intake.worry.strip()}."
@@ -137,7 +125,7 @@ def emergency_plan(intake: Intake) -> str:
     return "\n".join(response_lines)
 
 
-def collect_intake() -> Intake:
+def collect_intake():
     print(f"Hi, I’m here to help. {DISCLAIMER}.")
     chief = input("What brings you in today? ").strip()
 
@@ -145,11 +133,14 @@ def collect_intake() -> Intake:
 
     severity = input("How bad is it right now on a 0 to 10 scale? ").strip()
 
-    key_details = input("What else is happening with it (for example: where it is, what makes it better or worse, and any other symptoms)? ").strip()
+    key_details = input(
+        "What else is happening with it (for example: where it is, what makes it better or worse, and any other symptoms)? "
+    ).strip()
 
-    meds_allergies = input("Any medicines you take regularly, and any allergies? ").strip()
+    meds_allergies = input(
+        "Any medicines you take regularly, and any allergies? "
+    ).strip()
 
-    # Must ask this before recommendations
     worry = input(f"{PRIORITY_Q} ").strip()
 
     return Intake(
@@ -165,7 +156,9 @@ def collect_intake() -> Intake:
 def main():
     intake = collect_intake()
 
-    combined = " ".join([intake.chief_complaint, intake.key_details, intake.timeline])
+    combined = " ".join(
+        [intake.chief_complaint, intake.key_details, intake.timeline]
+    )
     is_emergency = looks_like_emergency(combined)
 
     if is_emergency:
@@ -174,12 +167,13 @@ def main():
         response = mild_plan(intake, followup_days=3)
 
     ok, issues = enforce_language_rules(response)
+
     if not ok:
         print("\n[Internal check] Output violates constraints:")
         for i in issues:
             print(f"- {i}")
+
         print("\n[Internal check] Refusing to display unsafe/noncompliant output.\n")
-        # Fallback: always escalate if there is any compliance issue
         response = emergency_plan(intake)
 
     print("\n---\n")
